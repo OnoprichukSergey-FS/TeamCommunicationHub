@@ -1,4 +1,3 @@
-// server/index.js
 const express = require("express");
 const cors = require("cors");
 const { createServer } = require("http");
@@ -6,6 +5,10 @@ const { Server } = require("socket.io");
 
 const app = express();
 app.use(cors());
+
+app.get("/", (_req, res) => {
+  res.send("Team Communication Hub server is running");
+});
 
 const httpServer = createServer(app);
 
@@ -15,146 +18,171 @@ const io = new Server(httpServer, {
   },
 });
 
+const PORT = process.env.PORT || 4000;
+
+// ---------------- In-memory data ----------------
+
 const channels = ["general", "development", "random"];
+
+// channelId -> Message[]
 const messagesByChannel = {
   general: [],
   development: [],
   random: [],
 };
 
-// Presence + typing tracking
-const usersBySocket = {}; // socket.id -> { userId, name }
-const usersById = {}; // userId -> { id, name, status, lastSeen }
+// socket.id -> { userId, name, lastSeen }
+const usersBySocket = {};
 
+// channelId -> Set<socket.id>
 const channelMembers = {
   general: new Set(),
   development: new Set(),
   random: new Set(),
 };
 
+// channelId -> Set<socket.id> (currently typing)
 const typingByChannel = {
   general: new Set(),
   development: new Set(),
   random: new Set(),
 };
 
-function broadcastChannelUserCounts() {
-  const summary = channels.map((channelId) => ({
-    channelId,
-    userCount: channelMembers[channelId].size,
-  }));
-  console.log("Broadcasting channel:userCounts", summary);
-  io.emit("channel:userCounts", summary);
-}
+// ---------------- Helper functions ----------------
 
-function broadcastChannelPresence(channelId) {
-  const users = Array.from(channelMembers[channelId]).map((userId) => {
-    const u = usersById[userId];
-    return {
-      id: userId,
-      name: u?.name || "Unknown",
-      status: u?.status || "offline",
-      lastSeen: u?.lastSeen || null,
-    };
+function getUsersInChannel(channelId) {
+  const memberSockets = channelMembers[channelId] || new Set();
+  const users = [];
+
+  memberSockets.forEach((socketId) => {
+    const user = usersBySocket[socketId];
+    if (user) {
+      users.push({
+        id: user.userId,
+        name: user.name,
+        lastSeen: user.lastSeen || null,
+      });
+    }
   });
 
+  return users;
+}
+
+function broadcastPresence(channelId) {
+  const users = getUsersInChannel(channelId);
   io.to(channelId).emit("presence:update", { channelId, users });
 }
 
-function broadcastTyping(channelId) {
-  const users = Array.from(typingByChannel[channelId]).map((userId) => {
-    const u = usersById[userId];
-    return {
-      id: userId,
-      name: u?.name || "Unknown",
-    };
+function sendPresenceToSocket(socket, channelId) {
+  const users = getUsersInChannel(channelId);
+  socket.emit("presence:update", { channelId, users });
+}
+
+function emitTyping(channelId) {
+  const typingSockets = typingByChannel[channelId] || new Set();
+  const users = [];
+
+  typingSockets.forEach((socketId) => {
+    const user = usersBySocket[socketId];
+    if (user) {
+      users.push({ id: user.userId, name: user.name });
+    }
   });
 
   io.to(channelId).emit("typing:update", { channelId, users });
 }
 
+// ---------------- Socket.io logic ----------------
+
 io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
 
+  // Simple auth: remember userId + name for this socket
   socket.on("auth:login", ({ userId, name }) => {
-    usersBySocket[socket.id] = { userId, name };
+    const safeName = (name ?? "").toString().trim() || "Guest";
+    const safeUserId = (userId ?? socket.id).toString();
 
-    if (!usersById[userId]) {
-      usersById[userId] = {
-        id: userId,
-        name,
-        status: "online",
-        lastSeen: new Date().toISOString(),
-      };
-    } else {
-      usersById[userId].name = name;
-      usersById[userId].status = "online";
-    }
+    usersBySocket[socket.id] = {
+      userId: safeUserId,
+      name: safeName,
+      lastSeen: new Date().toISOString(),
+    };
 
-    console.log("User logged in:", userId, name);
+    console.log("User logged in:", safeUserId, safeName);
   });
 
+  // Join a channel (room), send history, broadcast presence
   socket.on("channel:join", ({ channelId }) => {
     if (!channels.includes(channelId)) return;
 
-    const user = usersBySocket[socket.id];
-    if (!user) return;
-    const userId = user.userId;
-
     socket.join(channelId);
+    channelMembers[channelId].add(socket.id);
+
     console.log(`Socket ${socket.id} joined channel ${channelId}`);
 
-    channelMembers[channelId].add(userId);
-    broadcastChannelUserCounts();
-    broadcastChannelPresence(channelId);
-
+    // send history to this socket
     const history = messagesByChannel[channelId] || [];
     socket.emit("channel:history", history);
+
+    // broadcast updated presence to channel
+    broadcastPresence(channelId);
   });
 
-  socket.on("channel:getUserCounts", () => {
-    console.log("Received channel:getUserCounts");
-    broadcastChannelUserCounts();
+  // Leave a channel explicitly
+  socket.on("channel:leave", ({ channelId }) => {
+    if (!channels.includes(channelId)) return;
+
+    socket.leave(channelId);
+    channelMembers[channelId].delete(socket.id);
+
+    // update presence
+    broadcastPresence(channelId);
+
+    // stop typing
+    typingByChannel[channelId].delete(socket.id);
+    emitTyping(channelId);
   });
 
+  // Client asks for presence snapshot
   socket.on("presence:get", ({ channelId }) => {
     if (!channels.includes(channelId)) return;
-    broadcastChannelPresence(channelId);
+    sendPresenceToSocket(socket, channelId);
   });
 
+  // Typing
   socket.on("typing:start", ({ channelId }) => {
     if (!channels.includes(channelId)) return;
-    const user = usersBySocket[socket.id];
-    if (!user) return;
-    typingByChannel[channelId].add(user.userId);
-    broadcastTyping(channelId);
+    typingByChannel[channelId].add(socket.id);
+    emitTyping(channelId);
   });
 
   socket.on("typing:stop", ({ channelId }) => {
     if (!channels.includes(channelId)) return;
-    const user = usersBySocket[socket.id];
-    if (!user) return;
-    typingByChannel[channelId].delete(user.userId);
-    broadcastTyping(channelId);
+    typingByChannel[channelId].delete(socket.id);
+    emitTyping(channelId);
   });
 
-  // inside io.on("connection", (socket) => { ... })
-
+  // Main message send
   socket.on("message:send", ({ tempId, channelId, text }) => {
     if (!channels.includes(channelId)) return;
 
     const trimmed = (text ?? "").toString().trim();
     if (!trimmed) return;
 
-    //  use client tempId when possible so don't duplicate
+    // use client tempId as final id to avoid duplicates
     const messageId =
       tempId || Date.now().toString() + Math.random().toString(36).slice(2);
+
+    const user = usersBySocket[socket.id] || {
+      userId: socket.id,
+      name: "Guest",
+    };
 
     const message = {
       id: messageId,
       channelId,
-      userId: usersBySocket[socket.id]?.userId || socket.id,
-      userName: usersBySocket[socket.id]?.name || "Guest",
+      userId: user.userId,
+      userName: user.name,
       text: trimmed,
       createdAt: new Date().toISOString(),
       status: "delivered",
@@ -168,40 +196,65 @@ io.on("connection", (socket) => {
     }
     messagesByChannel[channelId].push(message);
 
-    // deliver to people in the channel
+    // send to people in this channel
     io.to(channelId).emit("message:new", message);
 
-    // also notify all clients that this channel had activity (for unread)
+    // inform all clients this channel had activity (for unread badges)
     io.emit("channel:activity", { channelId });
   });
 
-  socket.on("disconnect", () => {
-    const user = usersBySocket[socket.id];
-    if (user) {
-      const userId = user.userId;
-      const u = usersById[userId];
+  // Message reactions
+  socket.on("message:react", ({ channelId, messageId, emoji }) => {
+    if (!channels.includes(channelId)) return;
+    if (!emoji) return;
 
-      if (u) {
-        u.status = "offline";
-        u.lastSeen = new Date().toISOString();
-      }
+    const list = messagesByChannel[channelId] || [];
+    const msg = list.find((m) => m.id === messageId);
+    if (!msg) return;
 
-      channels.forEach((channelId) => {
-        channelMembers[channelId].delete(userId);
-        typingByChannel[channelId].delete(userId);
-        broadcastChannelPresence(channelId);
-        broadcastTyping(channelId);
-      });
+    const user = usersBySocket[socket.id] || {
+      userId: socket.id,
+      name: "Guest",
+    };
+    const userId = user.userId;
 
-      broadcastChannelUserCounts();
+    if (!msg.reactions) msg.reactions = {};
+
+    const current = new Set(msg.reactions[emoji] || []);
+
+    // toggle reaction
+    if (current.has(userId)) {
+      current.delete(userId);
+    } else {
+      current.add(userId);
     }
 
+    msg.reactions[emoji] = Array.from(current);
+
+    // broadcast updated message to everyone in channel
+    io.to(channelId).emit("message:update", msg);
+  });
+
+  // Disconnect cleanup
+  socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);
+
+    const user = usersBySocket[socket.id];
+    if (user) {
+      user.lastSeen = new Date().toISOString();
+    }
+
+    // remove from channels & typing sets
+    channels.forEach((channelId) => {
+      channelMembers[channelId].delete(socket.id);
+      typingByChannel[channelId].delete(socket.id);
+      broadcastPresence(channelId);
+      emitTyping(channelId);
+    });
+
     delete usersBySocket[socket.id];
   });
 });
-
-const PORT = process.env.PORT || 4000;
 
 httpServer.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);

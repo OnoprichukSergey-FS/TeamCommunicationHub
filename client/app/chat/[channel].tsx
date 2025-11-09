@@ -40,26 +40,26 @@ export default function ChatScreen() {
   const userIdRef = useRef<string>(createRandomId());
   const pendingQueueRef = useRef<PendingItem[]>([]);
 
-  // Reload display name every time this screen is focused
+  // On focus: set active channel + reload username
   useFocusEffect(
     useCallback(() => {
       let active = true;
+
+      // Mark this channel as active so unread clears on this device
+      ChannelState.setActiveChannel(channelId);
+
+      // Reload display name when returning from Settings
       UserSettings.getUserName().then((stored) => {
         if (active) setUserName(stored || "Guest");
       });
+
       return () => {
         active = false;
+        // Leaving this screen -> clear active channel
+        ChannelState.setActiveChannel(null);
       };
-    }, [])
+    }, [channelId])
   );
-
-  // Tell ChannelState which channel is active (for unread clearing)
-  useEffect(() => {
-    ChannelState.setActiveChannel(channelId);
-    return () => {
-      ChannelState.setActiveChannel(null);
-    };
-  }, [channelId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -132,6 +132,14 @@ export default function ChatScreen() {
       });
     };
 
+    const handleMessageUpdate = (message: Message) => {
+      setMessages((prev) => {
+        const next = mergeMessages([message], prev);
+        MessageStorage.saveMessage(message);
+        return next;
+      });
+    };
+
     const handlePresenceUpdate = (payload: {
       channelId: string;
       users: User[];
@@ -150,6 +158,7 @@ export default function ChatScreen() {
 
     socketService.on("channel:history", handleHistory);
     socketService.on("message:new", handleNewMessage);
+    socketService.on("message:update", handleMessageUpdate);
     socketService.on("presence:update", handlePresenceUpdate);
     socketService.on("typing:update", handleTypingUpdate);
 
@@ -159,6 +168,7 @@ export default function ChatScreen() {
       socketService.off("disconnect", handleDisconnect);
       socketService.off("channel:history", handleHistory);
       socketService.off("message:new", handleNewMessage);
+      socketService.off("message:update", handleMessageUpdate);
       socketService.off("presence:update", handlePresenceUpdate);
       socketService.off("typing:update", handleTypingUpdate);
     };
@@ -200,6 +210,14 @@ export default function ChatScreen() {
     });
   };
 
+  const handleReact = (messageId: string, emoji: string) => {
+    socketService.emit("message:react", {
+      channelId,
+      messageId,
+      emoji,
+    });
+  };
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -223,7 +241,7 @@ export default function ChatScreen() {
 
       {/* Messages */}
       <View style={styles.messages}>
-        <MessageList messages={messages} />
+        <MessageList messages={messages} onReact={handleReact} />
       </View>
 
       {/* Typing */}
