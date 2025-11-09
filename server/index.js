@@ -1,7 +1,7 @@
-import express from "express";
-import cors from "cors";
-import { createServer } from "http";
-import { Server } from "socket.io";
+const express = require("express");
+const cors = require("cors");
+const { createServer } = require("http");
+const { Server } = require("socket.io");
 
 const app = express();
 app.use(cors());
@@ -18,7 +18,8 @@ io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
 });
 
-const PORT = 4000;
+const PORT = process.env.PORT || 4000;
+
 httpServer.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
 });
