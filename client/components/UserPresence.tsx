@@ -6,58 +6,79 @@ type Props = {
   users: User[];
 };
 
+function formatLastSeen(lastSeen: string | null) {
+  if (!lastSeen) return "";
+  const date = new Date(lastSeen);
+  return date.toLocaleTimeString();
+}
+
 export default function UserPresence({ users }: Props) {
-  if (!users.length) return null;
+  if (!users.length) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.label}>No one else is here yet.</Text>
+      </View>
+    );
+  }
 
   const online = users.filter((u) => u.status === "online");
   const offline = users.filter((u) => u.status === "offline");
 
   return (
     <View style={styles.container}>
-      <Text style={styles.sectionTitle}>Online</Text>
-      {online.length === 0 && (
-        <Text style={styles.empty}>No one online right now.</Text>
-      )}
-      {online.map((u) => (
-        <Text key={u.id} style={styles.onlineUser}>
-          ● {u.name}
-        </Text>
+      <Text style={styles.label}>People in this channel</Text>
+
+      {online.map((user) => (
+        <View key={user.id} style={styles.row}>
+          <View style={[styles.dot, { backgroundColor: "#22c55e" }]} />
+          <Text style={styles.name}>{user.name}</Text>
+          <Text style={styles.status}>online</Text>
+        </View>
       ))}
 
-      {offline.length > 0 && (
-        <>
-          <Text style={[styles.sectionTitle, { marginTop: 8 }]}>Offline</Text>
-          {offline.map((u) => (
-            <Text key={u.id} style={styles.offlineUser}>
-              ◯ {u.name}
-            </Text>
-          ))}
-        </>
-      )}
+      {offline.map((user) => (
+        <View key={user.id} style={styles.row}>
+          <View style={[styles.dot, { backgroundColor: "#6b7280" }]} />
+          <Text style={styles.name}>{user.name}</Text>
+          <Text style={styles.status}>
+            last seen {formatLastSeen(user.lastSeen)}
+          </Text>
+        </View>
+      ))}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#1f2937",
+    paddingHorizontal: 16,
     paddingVertical: 8,
   },
-  sectionTitle: {
+  label: {
     fontSize: 12,
-    fontWeight: "600",
     color: "#9ca3af",
+    marginBottom: 4,
   },
-  empty: {
-    fontSize: 12,
-    color: "#6b7280",
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 2,
   },
-  onlineUser: {
-    fontSize: 12,
-    color: "#22c55e",
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
   },
-  offlineUser: {
-    fontSize: 12,
-    color: "#6b7280",
+  name: {
+    fontSize: 13,
+    color: "#e5e7eb",
+    marginRight: 6,
+  },
+  status: {
+    fontSize: 11,
+    color: "#9ca3af",
   },
 });

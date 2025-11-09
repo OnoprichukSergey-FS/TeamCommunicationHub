@@ -1,5 +1,3 @@
-// client/types/chat.ts
-
 export type ChannelId = "general" | "development" | "random";
 
 export type MessageStatus = "sending" | "sent" | "delivered";

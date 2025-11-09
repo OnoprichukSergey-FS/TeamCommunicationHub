@@ -1,34 +1,29 @@
-import React from "react";
-import { View, Text, FlatList, Pressable, StyleSheet } from "react-native";
-import { useRouter, Href } from "expo-router";
-import { DEFAULT_CHANNELS, type Channel } from "../types/chat";
+import React, { useEffect, useState } from "react";
+import { View, Text, StyleSheet } from "react-native";
+import { useRouter } from "expo-router";
+import ChannelList from "../components/ChannelList";
+import type { Channel } from "../types/chat";
+import { ChannelState } from "../services/ChannelState";
 
 export default function ChannelListScreen() {
   const router = useRouter();
+  const [channels, setChannels] = useState<Channel[]>(
+    ChannelState.getChannels()
+  );
 
-  const handleChannelPress = (channel: Channel) => {
-    router.push(`/chat/${channel.id}` as Href);
+  useEffect(() => {
+    const unsubscribe = ChannelState.subscribe((chs) => setChannels(chs));
+    return unsubscribe;
+  }, []);
+
+  const handleChannelPress = (id: Channel["id"]) => {
+    router.push(`/chat/${id}`);
   };
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Team Communication Hub</Text>
-
-      <FlatList
-        data={DEFAULT_CHANNELS}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <Pressable
-            onPress={() => handleChannelPress(item)}
-            style={styles.channelItem}
-          >
-            <Text style={styles.channelName}>{item.name}</Text>
-            <Text style={styles.channelMeta}>
-              {item.userCount} online · {item.unreadCount} unread
-            </Text>
-          </Pressable>
-        )}
-      />
+      <ChannelList channels={channels} onChannelPress={handleChannelPress} />
     </View>
   );
 }
@@ -36,28 +31,14 @@ export default function ChannelListScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#020617",
     paddingTop: 60,
-    paddingHorizontal: 16,
-    backgroundColor: "#0f172a",
   },
   title: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "600",
-    marginBottom: 16,
     color: "#e5e7eb",
-  },
-  channelItem: {
-    paddingVertical: 14,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#1f2937",
-  },
-  channelName: {
-    fontSize: 18,
-    color: "#f9fafb",
-  },
-  channelMeta: {
-    fontSize: 12,
-    color: "#9ca3af",
-    marginTop: 2,
+    paddingHorizontal: 16,
+    marginBottom: 12,
   },
 });

@@ -9,35 +9,43 @@ type Props = {
 export default function MessageList({ messages }: Props) {
   return (
     <FlatList
+      style={styles.list}
       data={messages}
       keyExtractor={(item) => item.id}
-      contentContainerStyle={styles.list}
       renderItem={({ item }) => (
-        <View style={styles.messageRow}>
-          <Text style={styles.userName}>{item.userName}</Text>
-          <Text style={styles.text}>
-            {item.deleted ? "This message was deleted" : item.text}
-            {item.edited && !item.deleted ? " (edited)" : ""}
-          </Text>
+        <View style={styles.row}>
+          <Text style={styles.user}>{item.userName}</Text>
+          <Text style={styles.text}>{item.text}</Text>
+          <Text style={styles.meta}>{item.status}</Text>
         </View>
       )}
+      contentContainerStyle={styles.listContent}
+      keyboardShouldPersistTaps="handled"
     />
   );
 }
 
 const styles = StyleSheet.create({
   list: {
-    padding: 12,
+    flex: 1,
   },
-  messageRow: {
+  listContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  row: {
     marginBottom: 8,
   },
-  userName: {
+  user: {
     fontSize: 12,
     color: "#9ca3af",
   },
   text: {
-    fontSize: 16,
-    color: "#f9fafb",
+    fontSize: 14,
+    color: "#e5e7eb",
+  },
+  meta: {
+    fontSize: 10,
+    color: "#6b7280",
   },
 });

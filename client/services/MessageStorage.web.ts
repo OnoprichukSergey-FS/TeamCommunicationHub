@@ -1,9 +1,8 @@
-// client/services/MessageStorage.web.ts
 import type { ChannelId, Message } from "../types/chat";
 
 const STORAGE_KEY = "teamCommMessages";
 
-type MessageMap = Record<string, Message[]>; // channelId -> messages[]
+type MessageMap = Record<string, Message[]>;
 
 function loadAll(): MessageMap {
   if (typeof window === "undefined") return {};
@@ -27,9 +26,7 @@ function saveAll(map: MessageMap) {
 }
 
 export const MessageStorage = {
-  init() {
-    // nothing needed on web
-  },
+  init() {},
 
   async getMessagesByChannel(channelId: ChannelId): Promise<Message[]> {
     const map = loadAll();
