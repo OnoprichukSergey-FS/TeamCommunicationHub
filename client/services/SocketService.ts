@@ -1,21 +1,30 @@
 import { io, Socket } from "socket.io-client";
 
+const SOCKET_URL = "https://teamcommunicationhub.onrender.com";
+
 class SocketService {
   private socket: Socket | null = null;
 
   connect() {
     if (this.socket) return;
 
-    this.socket = io("http://localhost:4000", {
-      transports: ["websocket"],
+    this.socket = io(SOCKET_URL, {
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
     });
 
     this.socket.on("connect", () => {
       console.log("[Socket] Connected:", this.socket?.id);
     });
 
-    this.socket.on("disconnect", () => {
-      console.log("[Socket] Disconnected");
+    this.socket.on("disconnect", (reason) => {
+      console.log("[Socket] Disconnected:", reason);
+    });
+
+    this.socket.on("connect_error", (error) => {
+      console.log("[Socket] Connection error:", error.message);
     });
   }
 
