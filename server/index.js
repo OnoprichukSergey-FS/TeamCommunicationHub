@@ -4,7 +4,12 @@ const { createServer } = require("http");
 const { Server } = require("socket.io");
 
 const app = express();
-app.use(cors());
+
+app.use(
+  cors({
+    origin: "*",
+  })
+);
 
 app.get("/", (_req, res) => {
   res.send("Team Communication Hub server is running");
@@ -15,6 +20,7 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
     origin: "*",
+    methods: ["GET", "POST"],
   },
 });
 
@@ -75,13 +81,13 @@ function getUsersInChannel(channelId) {
 
 function broadcastPresence(channelId) {
   const users = getUsersInChannel(channelId);
-  io.to(channelId).emit("presence:update", { channelId, users });
-  broadcastChannelCounts();
-}
 
-function sendPresenceToSocket(socket, channelId) {
-  const users = getUsersInChannel(channelId);
-  socket.emit("presence:update", { channelId, users });
+  io.to(channelId).emit("presence:update", {
+    channelId,
+    users,
+  });
+
+  broadcastChannelCounts();
 }
 
 function emitTyping(channelId) {
@@ -92,11 +98,17 @@ function emitTyping(channelId) {
     const user = usersBySocket[socketId];
 
     if (user) {
-      users.push({ id: user.userId, name: user.name });
+      users.push({
+        id: user.userId,
+        name: user.name,
+      });
     }
   });
 
-  io.to(channelId).emit("typing:update", { channelId, users });
+  io.to(channelId).emit("typing:update", {
+    channelId,
+    users,
+  });
 }
 
 io.on("connection", (socket) => {
@@ -105,8 +117,8 @@ io.on("connection", (socket) => {
   socket.emit("channel:counts", getChannelCounts());
 
   socket.on("auth:login", ({ userId, name }) => {
-    const safeName = (name ?? "").toString().trim() || "Guest";
-    const safeUserId = (userId ?? socket.id).toString();
+    const safeName = (name || "Guest").toString().trim();
+    const safeUserId = (userId || socket.id).toString();
 
     usersBySocket[socket.id] = {
       userId: safeUserId,
@@ -114,7 +126,6 @@ io.on("connection", (socket) => {
       lastSeen: new Date().toISOString(),
     };
 
-    console.log("User logged in:", safeUserId, safeName);
     socket.emit("channel:counts", getChannelCounts());
   });
 
@@ -124,8 +135,7 @@ io.on("connection", (socket) => {
     socket.join(channelId);
     channelMembers[channelId].add(socket.id);
 
-    const history = messagesByChannel[channelId] || [];
-    socket.emit("channel:history", history);
+    socket.emit("channel:history", messagesByChannel[channelId]);
 
     broadcastPresence(channelId);
   });
@@ -135,16 +145,10 @@ io.on("connection", (socket) => {
 
     socket.leave(channelId);
     channelMembers[channelId].delete(socket.id);
-
     typingByChannel[channelId].delete(socket.id);
+
     emitTyping(channelId);
     broadcastPresence(channelId);
-  });
-
-  socket.on("presence:get", ({ channelId }) => {
-    if (!channels.includes(channelId)) return;
-    sendPresenceToSocket(socket, channelId);
-    socket.emit("channel:counts", getChannelCounts());
   });
 
   socket.on("typing:start", ({ channelId }) => {
@@ -164,11 +168,8 @@ io.on("connection", (socket) => {
   socket.on("message:send", ({ tempId, channelId, text }) => {
     if (!channels.includes(channelId)) return;
 
-    const trimmed = (text ?? "").toString().trim();
+    const trimmed = (text || "").toString().trim();
     if (!trimmed) return;
-
-    const messageId =
-      tempId || Date.now().toString() + Math.random().toString(36).slice(2);
 
     const user = usersBySocket[socket.id] || {
       userId: socket.id,
@@ -176,7 +177,7 @@ io.on("connection", (socket) => {
     };
 
     const message = {
-      id: messageId,
+      id: tempId || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       channelId,
       userId: user.userId,
       userName: user.name,
@@ -198,28 +199,32 @@ io.on("connection", (socket) => {
     if (!channels.includes(channelId)) return;
     if (!emoji) return;
 
-    const list = messagesByChannel[channelId] || [];
-    const msg = list.find((m) => m.id === messageId);
-    if (!msg) return;
+    const message = messagesByChannel[channelId].find(
+      (item) => item.id === messageId
+    );
+
+    if (!message) return;
 
     const user = usersBySocket[socket.id] || {
       userId: socket.id,
       name: "Guest",
     };
 
-    if (!msg.reactions) msg.reactions = {};
-
-    const current = new Set(msg.reactions[emoji] || []);
-
-    if (current.has(user.userId)) {
-      current.delete(user.userId);
-    } else {
-      current.add(user.userId);
+    if (!message.reactions) {
+      message.reactions = {};
     }
 
-    msg.reactions[emoji] = Array.from(current);
+    const currentUsers = new Set(message.reactions[emoji] || []);
 
-    io.to(channelId).emit("message:update", msg);
+    if (currentUsers.has(user.userId)) {
+      currentUsers.delete(user.userId);
+    } else {
+      currentUsers.add(user.userId);
+    }
+
+    message.reactions[emoji] = Array.from(currentUsers);
+
+    io.to(channelId).emit("message:update", message);
   });
 
   socket.on("disconnect", () => {
@@ -228,8 +233,9 @@ io.on("connection", (socket) => {
     channels.forEach((channelId) => {
       channelMembers[channelId].delete(socket.id);
       typingByChannel[channelId].delete(socket.id);
-      broadcastPresence(channelId);
+
       emitTyping(channelId);
+      broadcastPresence(channelId);
     });
 
     delete usersBySocket[socket.id];
