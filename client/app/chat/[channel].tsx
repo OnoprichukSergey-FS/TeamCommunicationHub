@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { View, Text, StyleSheet } from "react-native";
-import { useLocalSearchParams, useFocusEffect } from "expo-router";
+import { View, Text, StyleSheet, Pressable } from "react-native";
+import { useLocalSearchParams, useFocusEffect, useRouter } from "expo-router";
 
 import { socketService } from "../../services/SocketService";
 import { MessageStorage } from "../../services/MessageStorage";
@@ -25,7 +25,9 @@ type PendingItem = {
 };
 
 export default function ChatScreen() {
+  const router = useRouter();
   const params = useLocalSearchParams();
+
   const channelId: ChannelId =
     (params.channel as ChannelId) || ("general" as ChannelId);
 
@@ -40,22 +42,18 @@ export default function ChatScreen() {
   const userIdRef = useRef<string>(createRandomId());
   const pendingQueueRef = useRef<PendingItem[]>([]);
 
-  // On focus: set active channel + reload username
   useFocusEffect(
     useCallback(() => {
       let active = true;
 
-      // Mark this channel as active so unread clears on this device
       ChannelState.setActiveChannel(channelId);
 
-      // Reload display name when returning from Settings
       UserSettings.getUserName().then((stored) => {
         if (active) setUserName(stored || "Guest");
       });
 
       return () => {
         active = false;
-        // Leaving this screen -> clear active channel
         ChannelState.setActiveChannel(null);
       };
     }, [channelId])
@@ -64,7 +62,6 @@ export default function ChatScreen() {
   useEffect(() => {
     let isMounted = true;
 
-    // Load local history from SQLite
     MessageStorage.getMessagesByChannel(channelId)
       .then((stored) => {
         if (isMounted) setMessages(stored);
@@ -75,9 +72,17 @@ export default function ChatScreen() {
 
     const handleConnect = () => {
       if (!isMounted) return;
+
       setConnected(true);
 
-      // Flush queued messages
+      socketService.emit("auth:login", {
+        userId: userIdRef.current,
+        name: userName,
+      });
+
+      socketService.emit("channel:join", { channelId });
+      socketService.emit("presence:get", { channelId });
+
       if (pendingQueueRef.current.length > 0) {
         pendingQueueRef.current.forEach((item) => {
           socketService.emit("message:send", {
@@ -86,6 +91,7 @@ export default function ChatScreen() {
             text: item.text,
           });
         });
+
         pendingQueueRef.current = [];
       }
     };
@@ -97,19 +103,22 @@ export default function ChatScreen() {
     socketService.on("connect", handleConnect);
     socketService.on("disconnect", handleDisconnect);
 
-    // Auth + join with current userName
     socketService.emit("auth:login", {
       userId: userIdRef.current,
       name: userName,
     });
+
     socketService.emit("channel:join", { channelId });
     socketService.emit("presence:get", { channelId });
 
-    // Helper to merge messages without duplicates
     const mergeMessages = (incoming: Message[], current: Message[]) => {
       const map = new Map<string, Message>();
+
       current.forEach((m) => map.set(m.id, m));
-      incoming.forEach((m) => map.set(m.id, m));
+      incoming.forEach((m) => {
+        if (m.id) map.set(m.id, m);
+      });
+
       return Array.from(map.values()).sort(
         (a, b) =>
           new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
@@ -126,7 +135,8 @@ export default function ChatScreen() {
 
     const handleNewMessage = (message: Message) => {
       setMessages((prev) => {
-        const next = mergeMessages([message], prev);
+        const withoutTemp = prev.filter((m) => m.id !== message.id);
+        const next = mergeMessages([message], withoutTemp);
         MessageStorage.saveMessage(message);
         return next;
       });
@@ -153,7 +163,12 @@ export default function ChatScreen() {
       users: { id: string; name: string }[];
     }) => {
       if (payload.channelId !== channelId) return;
-      setTypingUsers(payload.users.map((u) => u.name));
+
+      const otherUsers = payload.users.filter(
+        (u) => u.id !== userIdRef.current
+      );
+
+      setTypingUsers(otherUsers.map((u) => u.name));
     };
 
     socketService.on("channel:history", handleHistory);
@@ -164,6 +179,10 @@ export default function ChatScreen() {
 
     return () => {
       isMounted = false;
+
+      socketService.emit("typing:stop", { channelId });
+      socketService.emit("channel:leave", { channelId });
+
       socketService.off("connect", handleConnect);
       socketService.off("disconnect", handleDisconnect);
       socketService.off("channel:history", handleHistory);
@@ -175,6 +194,9 @@ export default function ChatScreen() {
   }, [channelId, userName]);
 
   const handleSend = (text: string) => {
+    const cleanText = text.trim();
+    if (!cleanText) return;
+
     const tempId = createRandomId();
     const isOnline = socketService.isConnected;
 
@@ -183,7 +205,7 @@ export default function ChatScreen() {
       channelId,
       userId: userIdRef.current,
       userName,
-      text,
+      text: cleanText,
       createdAt: new Date().toISOString(),
       status: isOnline ? "sent" : "sending",
       edited: false,
@@ -192,15 +214,16 @@ export default function ChatScreen() {
     };
 
     setMessages((prev) => [...prev, optimistic]);
+    MessageStorage.saveMessage(optimistic);
 
     if (isOnline) {
       socketService.emit("message:send", {
         tempId,
         channelId,
-        text,
+        text: cleanText,
       });
     } else {
-      pendingQueueRef.current.push({ tempId, channelId, text });
+      pendingQueueRef.current.push({ tempId, channelId, text: cleanText });
     }
   };
 
@@ -220,9 +243,17 @@ export default function ChatScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>#{channelId}</Text>
+        <Pressable onPress={() => router.push("/")} style={styles.backButton}>
+          <Text style={styles.backText}>← Channels</Text>
+        </Pressable>
+
+        <View style={styles.headerText}>
+          <Text style={styles.badge}>Live Channel</Text>
+          <Text style={styles.title}>#{channelId}</Text>
+          <Text style={styles.userText}>You: {userName}</Text>
+        </View>
+
         <View style={styles.statusContainer}>
           <View
             style={[
@@ -231,59 +262,98 @@ export default function ChatScreen() {
             ]}
           />
           <Text style={styles.statusText}>
-            {connected ? "Online" : "Reconnecting..."}
+            {connected ? "Online" : "Reconnecting"}
           </Text>
         </View>
       </View>
 
-      {/* People in this channel */}
       <UserPresence users={channelUsers} />
 
-      {/* Messages */}
       <View style={styles.messages}>
         <MessageList messages={messages} onReact={handleReact} />
       </View>
 
-      {/* Typing */}
       <TypingIndicator names={typingUsers} />
 
-      {/* Input */}
       <MessageInput onSend={handleSend} onTypingChange={handleTypingChange} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#020617" },
+  container: {
+    flex: 1,
+    backgroundColor: "#020617",
+  },
+
   header: {
-    paddingTop: 50,
-    paddingBottom: 12,
+    paddingTop: 54,
+    paddingBottom: 16,
     paddingHorizontal: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#1f2937",
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    gap: 12,
   },
+
+  backButton: {
+    backgroundColor: "#111827",
+    borderWidth: 1,
+    borderColor: "#253149",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+  },
+
+  backText: {
+    color: "#A78BFA",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+
+  headerText: {
+    flex: 1,
+  },
+
+  badge: {
+    color: "#8B7CFF",
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 1.2,
+    marginBottom: 3,
+  },
+
   title: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#e5e7eb",
+    fontSize: 22,
+    fontWeight: "900",
+    color: "#F8FAFC",
   },
+
+  userText: {
+    color: "#94A3B8",
+    fontSize: 12,
+    marginTop: 3,
+  },
+
   statusContainer: {
-    flexDirection: "row",
     alignItems: "center",
   },
+
   statusDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    marginRight: 6,
+    marginBottom: 5,
   },
+
   statusText: {
-    fontSize: 12,
+    fontSize: 11,
     color: "#9ca3af",
+    fontWeight: "700",
   },
+
   messages: {
     flex: 1,
   },

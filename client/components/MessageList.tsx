@@ -1,136 +1,234 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import {
   View,
   Text,
-  FlatList,
   StyleSheet,
-  ListRenderItem,
+  FlatList,
   Pressable,
+  ListRenderItem,
 } from "react-native";
 import type { Message } from "../types/chat";
 
 type Props = {
   messages: Message[];
-  onReact?: (messageId: string, emoji: string) => void;
+  onReact: (messageId: string, emoji: string) => void;
 };
 
-const REACTIONS = ["👍", "❤️", "😂"];
-
 export default function MessageList({ messages, onReact }: Props) {
-  const renderItem: ListRenderItem<Message> = ({ item }) => {
-    const statusLabel =
-      item.status === "sending"
-        ? "sending..."
-        : item.status === "sent"
-        ? "sent"
-        : "delivered";
+  const listRef = useRef<FlatList<Message>>(null);
 
-    const hasReactions =
-      item.reactions && Object.keys(item.reactions).length > 0;
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => {
+        listRef.current?.scrollToEnd({ animated: true });
+      }, 80);
+    }
+  }, [messages.length]);
+
+  const renderItem: ListRenderItem<Message> = ({ item }) => {
+    const time = new Date(item.createdAt).toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+
+    const reactionEntries = Object.entries(item.reactions || {});
 
     return (
-      <View style={styles.messageRow}>
-        <Text style={styles.userName}>{item.userName}</Text>
-        <Text style={styles.text}>{item.text}</Text>
-        <Text style={styles.meta}>{statusLabel}</Text>
+      <View style={styles.messageCard}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>
+            {item.userName?.slice(0, 1).toUpperCase() || "G"}
+          </Text>
+        </View>
 
-        {/* Reaction buttons */}
-        {onReact && (
-          <View style={styles.reactionRow}>
-            {REACTIONS.map((emoji) => (
-              <Pressable
-                key={emoji}
-                style={styles.reactionButton}
-                onPress={() => onReact(item.id, emoji)}
-              >
-                <Text style={styles.reactionButtonText}>{emoji}</Text>
+        <View style={styles.messageContent}>
+          <View style={styles.messageHeader}>
+            <Text style={styles.name}>{item.userName || "Guest"}</Text>
+            <Text style={styles.time}>{time}</Text>
+          </View>
+
+          <Text style={styles.messageText}>
+            {item.deleted ? "This message was deleted." : item.text}
+          </Text>
+
+          <View style={styles.messageFooter}>
+            <Text style={styles.status}>
+              {item.status === "sending" ? "⏳ Sending" : "✅ Sent"}
+              {item.edited ? " • Edited" : ""}
+            </Text>
+
+            <View style={styles.reactionRow}>
+              <Pressable onPress={() => onReact(item.id, "🔥")}>
+                <Text style={styles.reactionButton}>🔥</Text>
               </Pressable>
-            ))}
-          </View>
-        )}
 
-        {/* Existing reactions summary */}
-        {hasReactions && (
-          <View style={styles.reactionSummaryRow}>
-            {Object.entries(item.reactions ?? {}).map(
-              ([emoji, users]) =>
-                users.length > 0 && (
-                  <View key={emoji} style={styles.reactionBadge}>
-                    <Text style={styles.reactionBadgeText}>
-                      {emoji} {users.length}
-                    </Text>
-                  </View>
-                )
-            )}
+              <Pressable onPress={() => onReact(item.id, "👍")}>
+                <Text style={styles.reactionButton}>👍</Text>
+              </Pressable>
+
+              <Pressable onPress={() => onReact(item.id, "😂")}>
+                <Text style={styles.reactionButton}>😂</Text>
+              </Pressable>
+            </View>
           </View>
-        )}
+
+          {reactionEntries.length > 0 && (
+            <View style={styles.reactions}>
+              {reactionEntries.map(([emoji, users]) => (
+                <View key={emoji} style={styles.reactionPill}>
+                  <Text style={styles.reactionPillText}>
+                    {emoji} {Array.isArray(users) ? users.length : users}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
       </View>
     );
   };
 
+  if (messages.length === 0) {
+    return (
+      <View style={styles.emptyState}>
+        <Text style={styles.emptyTitle}>No messages yet</Text>
+        <Text style={styles.emptyText}>Start the conversation below.</Text>
+      </View>
+    );
+  }
+
   return (
     <FlatList
+      ref={listRef}
       data={messages}
       keyExtractor={(item) => item.id}
       renderItem={renderItem}
-      contentContainerStyle={styles.listContent}
+      contentContainerStyle={styles.list}
     />
   );
 }
 
 const styles = StyleSheet.create({
-  listContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  list: {
+    padding: 16,
+    paddingBottom: 24,
   },
-  messageRow: {
-    marginBottom: 12,
+
+  messageCard: {
+    flexDirection: "row",
+    marginBottom: 16,
   },
-  userName: {
-    fontSize: 12,
-    color: "#9ca3af",
-    marginBottom: 2,
+
+  avatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    backgroundColor: "rgba(139,124,255,0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(139,124,255,0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
   },
-  text: {
+
+  avatarText: {
+    color: "#A78BFA",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+
+  messageContent: {
+    flex: 1,
+    backgroundColor: "#111827",
+    borderWidth: 1,
+    borderColor: "#253149",
+    borderRadius: 18,
+    padding: 14,
+  },
+
+  messageHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+
+  name: {
+    color: "#F8FAFC",
     fontSize: 14,
-    color: "#e5e7eb",
+    fontWeight: "900",
   },
-  meta: {
-    fontSize: 10,
-    color: "#6b7280",
-    marginTop: 2,
+
+  time: {
+    color: "#64748B",
+    fontSize: 11,
   },
+
+  messageText: {
+    color: "#CBD5E1",
+    fontSize: 15,
+    lineHeight: 21,
+  },
+
+  messageFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 10,
+  },
+
+  status: {
+    color: "#64748B",
+    fontSize: 11,
+  },
+
   reactionRow: {
     flexDirection: "row",
-    marginTop: 4,
+    gap: 8,
   },
+
   reactionButton: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#374151",
-    marginRight: 4,
+    fontSize: 16,
   },
-  reactionButtonText: {
-    fontSize: 12,
-    color: "#e5e7eb",
-  },
-  reactionSummaryRow: {
+
+  reactions: {
     flexDirection: "row",
     flexWrap: "wrap",
-    marginTop: 4,
+    gap: 6,
+    marginTop: 10,
   },
-  reactionBadge: {
-    backgroundColor: "#111827",
+
+  reactionPill: {
+    backgroundColor: "#0B1220",
+    borderWidth: 1,
+    borderColor: "#253149",
     borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    marginRight: 4,
-    marginTop: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
-  reactionBadgeText: {
-    fontSize: 11,
-    color: "#e5e7eb",
+
+  reactionPillText: {
+    color: "#CBD5E1",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  emptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+
+  emptyTitle: {
+    color: "#F8FAFC",
+    fontSize: 20,
+    fontWeight: "900",
+    marginBottom: 6,
+  },
+
+  emptyText: {
+    color: "#94A3B8",
+    fontSize: 14,
   },
 });

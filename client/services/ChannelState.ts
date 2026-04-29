@@ -4,22 +4,27 @@ import { socketService } from "./SocketService";
 
 type Listener = (channels: Channel[]) => void;
 
-let channels: Channel[] = DEFAULT_CHANNELS.map((c) => ({ ...c }));
+let channels: Channel[] = DEFAULT_CHANNELS.map((c) => ({
+  ...c,
+  unreadCount: c.unreadCount ?? 0,
+  userCount: (c as any).userCount ?? 0,
+}));
+
 let activeChannelId: ChannelId | null = null;
 const listeners: Listener[] = [];
 
 function notify() {
-  listeners.forEach((l) => l(channels));
+  listeners.forEach((listener) => listener(channels));
 }
 
 export const ChannelState = {
   subscribe(listener: Listener) {
     listeners.push(listener);
-    // send current state immediately
     listener(channels);
+
     return () => {
-      const idx = listeners.indexOf(listener);
-      if (idx !== -1) listeners.splice(idx, 1);
+      const index = listeners.indexOf(listener);
+      if (index !== -1) listeners.splice(index, 1);
     };
   },
 
@@ -29,39 +34,53 @@ export const ChannelState = {
 
   setActiveChannel(channelId: ChannelId | null) {
     activeChannelId = channelId;
+
     if (channelId) {
-      // when viewing a channel, clear its unread
-      channels = channels.map((ch) =>
-        ch.id === channelId ? { ...ch, unreadCount: 0 } : ch
+      channels = channels.map((channel) =>
+        channel.id === channelId ? { ...channel, unreadCount: 0 } : channel
       );
       notify();
     }
   },
 
   bumpUnread(channelId: ChannelId) {
-    // don't count unread for the channel we're currently looking at
     if (activeChannelId === channelId) return;
-    channels = channels.map((ch) =>
-      ch.id === channelId ? { ...ch, unreadCount: ch.unreadCount + 1 } : ch
+
+    channels = channels.map((channel) =>
+      channel.id === channelId
+        ? { ...channel, unreadCount: (channel.unreadCount ?? 0) + 1 }
+        : channel
     );
+
     notify();
   },
 
   setUserCount(channelId: ChannelId, count: number) {
-    channels = channels.map((ch) =>
-      ch.id === channelId ? { ...ch, userCount: count } : ch
+    channels = channels.map((channel) =>
+      channel.id === channelId ? { ...channel, userCount: count } : channel
     );
+
+    notify();
+  },
+
+  setAllUserCounts(counts: Record<string, number>) {
+    channels = channels.map((channel) => ({
+      ...channel,
+      userCount: counts[channel.id] ?? 0,
+    }));
+
     notify();
   },
 };
-
-//  Wire socket events once, at module load
 
 socketService.on("channel:activity", (payload: { channelId: ChannelId }) => {
   ChannelState.bumpUnread(payload.channelId);
 });
 
-// optional: keep userCount in sync using presence updates
+socketService.on("channel:counts", (counts: Record<string, number>) => {
+  ChannelState.setAllUserCounts(counts);
+});
+
 socketService.on(
   "presence:update",
   (payload: { channelId: string; users: { id: string; name: string }[] }) => {
