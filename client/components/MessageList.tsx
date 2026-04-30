@@ -25,15 +25,12 @@ function formatDate(date: string) {
   const messageDate = new Date(date);
   const today = new Date();
 
-  const isToday = messageDate.toDateString() === today.toDateString();
-
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
 
-  const isYesterday = messageDate.toDateString() === yesterday.toDateString();
-
-  if (isToday) return "Today";
-  if (isYesterday) return "Yesterday";
+  if (messageDate.toDateString() === today.toDateString()) return "Today";
+  if (messageDate.toDateString() === yesterday.toDateString())
+    return "Yesterday";
 
   return messageDate.toLocaleDateString([], {
     weekday: "long",
@@ -64,7 +61,7 @@ export default function MessageList({ messages, onReact }: Props) {
     const reactionEntries = Object.entries(item.reactions || {});
 
     return (
-      <>
+      <View style={styles.itemWrap}>
         {showDateDivider && (
           <View style={styles.dateDivider}>
             <View style={styles.dividerLine} />
@@ -82,7 +79,10 @@ export default function MessageList({ messages, onReact }: Props) {
 
           <View style={styles.messageMain}>
             <View style={styles.messageHeader}>
-              <Text style={styles.name}>{item.userName || "Guest"}</Text>
+              <Text style={styles.name} numberOfLines={1}>
+                {item.userName || "Guest"}
+              </Text>
+
               <Text style={styles.time}>{formatTime(item.createdAt)}</Text>
             </View>
 
@@ -94,7 +94,7 @@ export default function MessageList({ messages, onReact }: Props) {
               </Text>
 
               <View style={styles.messageFooter}>
-                <Text style={styles.status}>
+                <Text style={styles.status} numberOfLines={1}>
                   {item.status === "sending" ? "Sending..." : "Sent"}
                   {item.edited ? " • Edited" : ""}
                 </Text>
@@ -126,7 +126,7 @@ export default function MessageList({ messages, onReact }: Props) {
             </View>
           </View>
         </View>
-      </>
+      </View>
     );
   };
 
@@ -146,18 +146,31 @@ export default function MessageList({ messages, onReact }: Props) {
       keyExtractor={(item) => item.id}
       renderItem={renderItem}
       contentContainerStyle={styles.list}
+      showsVerticalScrollIndicator={false}
+      horizontal={false}
+      alwaysBounceHorizontal={false}
     />
   );
 }
 
 const styles = StyleSheet.create({
   list: {
-    paddingHorizontal: 14,
+    width: "100%",
+    maxWidth: "100%",
+    paddingHorizontal: 12,
     paddingTop: 12,
     paddingBottom: 24,
+    overflow: "hidden",
+  },
+
+  itemWrap: {
+    width: "100%",
+    maxWidth: "100%",
+    overflow: "hidden",
   },
 
   dateDivider: {
+    width: "100%",
     flexDirection: "row",
     alignItems: "center",
     marginVertical: 18,
@@ -179,6 +192,7 @@ const styles = StyleSheet.create({
   },
 
   messageRow: {
+    width: "100%",
     flexDirection: "row",
     marginBottom: 14,
   },
@@ -192,7 +206,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(139,124,255,0.45)",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 12,
+    marginRight: 10,
   },
 
   avatarText: {
@@ -203,6 +217,7 @@ const styles = StyleSheet.create({
 
   messageMain: {
     flex: 1,
+    minWidth: 0,
   },
 
   messageHeader: {
@@ -216,6 +231,7 @@ const styles = StyleSheet.create({
     color: "#F8FAFC",
     fontSize: 14,
     fontWeight: "900",
+    flexShrink: 1,
   },
 
   time: {
@@ -224,6 +240,7 @@ const styles = StyleSheet.create({
   },
 
   bubble: {
+    width: "100%",
     backgroundColor: "#111827",
     borderWidth: 1,
     borderColor: "#253149",
@@ -235,6 +252,7 @@ const styles = StyleSheet.create({
     color: "#CBD5E1",
     fontSize: 15,
     lineHeight: 21,
+    flexShrink: 1,
   },
 
   deletedText: {
@@ -247,16 +265,20 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginTop: 10,
+    gap: 8,
+    flexWrap: "wrap",
   },
 
   status: {
     color: "#64748B",
     fontSize: 11,
+    flexShrink: 1,
   },
 
   reactionRow: {
     flexDirection: "row",
     gap: 6,
+    flexWrap: "wrap",
   },
 
   reactionButton: {

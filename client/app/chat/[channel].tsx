@@ -234,8 +234,12 @@ export default function ChatScreen() {
 
           <View style={styles.headerText}>
             <Text style={styles.badge}>Live Channel</Text>
-            <Text style={styles.title}>#{channelId}</Text>
-            <Text style={styles.userText}>You: {userName}</Text>
+            <Text style={styles.title} numberOfLines={1}>
+              #{channelId}
+            </Text>
+            <Text style={styles.userText} numberOfLines={1}>
+              You: {userName}
+            </Text>
           </View>
 
           <View style={styles.statusContainer}>
@@ -245,13 +249,15 @@ export default function ChatScreen() {
                 { backgroundColor: connected ? "#22c55e" : "#ef4444" },
               ]}
             />
-            <Text style={styles.statusText}>
-              {connected ? "Online" : "Reconnecting"}
+            <Text style={styles.statusText} numberOfLines={1}>
+              {connected ? "Online" : "Offline"}
             </Text>
           </View>
         </View>
 
-        <UserPresence users={channelUsers} />
+        <View style={styles.presenceWrap}>
+          <UserPresence users={channelUsers} />
+        </View>
 
         <View style={styles.messages}>
           <MessageList messages={messages} onReact={handleReact} />
@@ -259,7 +265,12 @@ export default function ChatScreen() {
 
         <TypingIndicator names={typingUsers} />
 
-        <MessageInput onSend={handleSend} onTypingChange={handleTypingChange} />
+        <View style={styles.inputWrap}>
+          <MessageInput
+            onSend={handleSend}
+            onTypingChange={handleTypingChange}
+          />
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -269,23 +280,32 @@ const styles = StyleSheet.create({
   safe: {
     flex: 1,
     backgroundColor: "#020617",
+    width: "100%",
+    maxWidth: "100%",
+    overflow: "hidden",
   },
 
   container: {
     flex: 1,
     backgroundColor: "#020617",
+    width: "100%",
+    maxWidth: "100%",
+    overflow: "hidden",
   },
 
   header: {
+    width: "100%",
+    maxWidth: "100%",
     paddingTop: 12,
     paddingBottom: 16,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#1f2937",
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     backgroundColor: "#020617",
+    overflow: "hidden",
   },
 
   backButton: {
@@ -295,6 +315,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
     borderRadius: 14,
+    flexShrink: 0,
   },
 
   backText: {
@@ -305,6 +326,8 @@ const styles = StyleSheet.create({
 
   headerText: {
     flex: 1,
+    minWidth: 0,
+    maxWidth: "100%",
   },
 
   badge: {
@@ -330,7 +353,9 @@ const styles = StyleSheet.create({
 
   statusContainer: {
     alignItems: "center",
-    minWidth: 74,
+    width: 58,
+    flexShrink: 0,
+    overflow: "hidden",
   },
 
   statusDot: {
@@ -342,13 +367,29 @@ const styles = StyleSheet.create({
 
   statusText: {
     color: "#9CA3AF",
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "800",
+  },
+
+  presenceWrap: {
+    width: "100%",
+    maxWidth: "100%",
+    overflow: "hidden",
   },
 
   messages: {
     flex: 1,
-    paddingHorizontal: 8,
+    paddingHorizontal: 0,
+    backgroundColor: "#020617",
+    width: "100%",
+    maxWidth: "100%",
+    overflow: "hidden",
+  },
+
+  inputWrap: {
+    width: "100%",
+    maxWidth: "100%",
+    overflow: "hidden",
     backgroundColor: "#020617",
   },
 });
