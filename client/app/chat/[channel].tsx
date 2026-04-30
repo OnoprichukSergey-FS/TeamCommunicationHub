@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import { View, Text, StyleSheet, Pressable, SafeAreaView } from "react-native";
 import { useLocalSearchParams, useFocusEffect, useRouter } from "expo-router";
 
 import { socketService } from "../../services/SocketService";
@@ -32,28 +32,23 @@ export default function ChatScreen() {
     (params.channel as ChannelId) || ("general" as ChannelId);
 
   const [messages, setMessages] = useState<Message[]>([]);
-  const [connected, setConnected] = useState<boolean>(
-    socketService.isConnected
-  );
+  const [connected, setConnected] = useState(socketService.isConnected);
   const [channelUsers, setChannelUsers] = useState<User[]>([]);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
-  const [userName, setUserName] = useState<string>("Guest");
+  const [userName, setUserName] = useState("Guest");
 
-  const userIdRef = useRef<string>(createRandomId());
+  const userIdRef = useRef(createRandomId());
   const pendingQueueRef = useRef<PendingItem[]>([]);
 
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-
       ChannelState.setActiveChannel(channelId);
 
       UserSettings.getUserName().then((stored) => {
-        if (active) setUserName(stored || "Guest");
+        setUserName(stored || "Guest");
       });
 
       return () => {
-        active = false;
         ChannelState.setActiveChannel(null);
       };
     }, [channelId])
@@ -62,17 +57,13 @@ export default function ChatScreen() {
   useEffect(() => {
     let isMounted = true;
 
-    MessageStorage.getMessagesByChannel(channelId)
-      .then((stored) => {
-        if (isMounted) setMessages(stored);
-      })
-      .catch((err) => console.log("Error loading stored messages", err));
+    MessageStorage.getMessagesByChannel(channelId).then((stored) => {
+      if (isMounted) setMessages(stored);
+    });
 
     socketService.connect();
 
     const handleConnect = () => {
-      if (!isMounted) return;
-
       setConnected(true);
 
       socketService.emit("auth:login", {
@@ -83,41 +74,22 @@ export default function ChatScreen() {
       socketService.emit("channel:join", { channelId });
       socketService.emit("presence:get", { channelId });
 
-      if (pendingQueueRef.current.length > 0) {
-        pendingQueueRef.current.forEach((item) => {
-          socketService.emit("message:send", {
-            tempId: item.tempId,
-            channelId: item.channelId,
-            text: item.text,
-          });
-        });
+      pendingQueueRef.current.forEach((item) => {
+        socketService.emit("message:send", item);
+      });
 
-        pendingQueueRef.current = [];
-      }
+      pendingQueueRef.current = [];
     };
 
     const handleDisconnect = () => {
-      if (isMounted) setConnected(false);
+      setConnected(false);
     };
-
-    socketService.on("connect", handleConnect);
-    socketService.on("disconnect", handleDisconnect);
-
-    socketService.emit("auth:login", {
-      userId: userIdRef.current,
-      name: userName,
-    });
-
-    socketService.emit("channel:join", { channelId });
-    socketService.emit("presence:get", { channelId });
 
     const mergeMessages = (incoming: Message[], current: Message[]) => {
       const map = new Map<string, Message>();
 
-      current.forEach((m) => map.set(m.id, m));
-      incoming.forEach((m) => {
-        if (m.id) map.set(m.id, m);
-      });
+      current.forEach((message) => map.set(message.id, message));
+      incoming.forEach((message) => map.set(message.id, message));
 
       return Array.from(map.values()).sort(
         (a, b) =>
@@ -128,15 +100,14 @@ export default function ChatScreen() {
     const handleHistory = (history: Message[]) => {
       setMessages((prev) => {
         const next = mergeMessages(history, prev);
-        history.forEach((m) => MessageStorage.saveMessage(m));
+        history.forEach((message) => MessageStorage.saveMessage(message));
         return next;
       });
     };
 
     const handleNewMessage = (message: Message) => {
       setMessages((prev) => {
-        const withoutTemp = prev.filter((m) => m.id !== message.id);
-        const next = mergeMessages([message], withoutTemp);
+        const next = mergeMessages([message], prev);
         MessageStorage.saveMessage(message);
         return next;
       });
@@ -164,18 +135,28 @@ export default function ChatScreen() {
     }) => {
       if (payload.channelId !== channelId) return;
 
-      const otherUsers = payload.users.filter(
-        (u) => u.id !== userIdRef.current
+      const others = payload.users.filter(
+        (user) => user.id !== userIdRef.current
       );
 
-      setTypingUsers(otherUsers.map((u) => u.name));
+      setTypingUsers(others.map((user) => user.name));
     };
 
+    socketService.on("connect", handleConnect);
+    socketService.on("disconnect", handleDisconnect);
     socketService.on("channel:history", handleHistory);
     socketService.on("message:new", handleNewMessage);
     socketService.on("message:update", handleMessageUpdate);
     socketService.on("presence:update", handlePresenceUpdate);
     socketService.on("typing:update", handleTypingUpdate);
+
+    socketService.emit("auth:login", {
+      userId: userIdRef.current,
+      name: userName,
+    });
+
+    socketService.emit("channel:join", { channelId });
+    socketService.emit("presence:get", { channelId });
 
     return () => {
       isMounted = false;
@@ -216,14 +197,16 @@ export default function ChatScreen() {
     setMessages((prev) => [...prev, optimistic]);
     MessageStorage.saveMessage(optimistic);
 
+    const payload = {
+      tempId,
+      channelId,
+      text: cleanText,
+    };
+
     if (isOnline) {
-      socketService.emit("message:send", {
-        tempId,
-        channelId,
-        text: cleanText,
-      });
+      socketService.emit("message:send", payload);
     } else {
-      pendingQueueRef.current.push({ tempId, channelId, text: cleanText });
+      pendingQueueRef.current.push(payload);
     }
   };
 
@@ -242,68 +225,76 @@ export default function ChatScreen() {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.push("/")} style={styles.backButton}>
-          <Text style={styles.backText}>← Channels</Text>
-        </Pressable>
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Pressable onPress={() => router.push("/")} style={styles.backButton}>
+            <Text style={styles.backText}>← Channels</Text>
+          </Pressable>
 
-        <View style={styles.headerText}>
-          <Text style={styles.badge}>Live Channel</Text>
-          <Text style={styles.title}>#{channelId}</Text>
-          <Text style={styles.userText}>You: {userName}</Text>
+          <View style={styles.headerText}>
+            <Text style={styles.badge}>Live Channel</Text>
+            <Text style={styles.title}>#{channelId}</Text>
+            <Text style={styles.userText}>You: {userName}</Text>
+          </View>
+
+          <View style={styles.statusContainer}>
+            <View
+              style={[
+                styles.statusDot,
+                { backgroundColor: connected ? "#22c55e" : "#ef4444" },
+              ]}
+            />
+            <Text style={styles.statusText}>
+              {connected ? "Online" : "Reconnecting"}
+            </Text>
+          </View>
         </View>
 
-        <View style={styles.statusContainer}>
-          <View
-            style={[
-              styles.statusDot,
-              { backgroundColor: connected ? "#22c55e" : "#ef4444" },
-            ]}
-          />
-          <Text style={styles.statusText}>
-            {connected ? "Online" : "Reconnecting"}
-          </Text>
+        <UserPresence users={channelUsers} />
+
+        <View style={styles.messages}>
+          <MessageList messages={messages} onReact={handleReact} />
         </View>
+
+        <TypingIndicator names={typingUsers} />
+
+        <MessageInput onSend={handleSend} onTypingChange={handleTypingChange} />
       </View>
-
-      <UserPresence users={channelUsers} />
-
-      <View style={styles.messages}>
-        <MessageList messages={messages} onReact={handleReact} />
-      </View>
-
-      <TypingIndicator names={typingUsers} />
-
-      <MessageInput onSend={handleSend} onTypingChange={handleTypingChange} />
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safe: {
+    flex: 1,
+    backgroundColor: "#020617",
+  },
+
   container: {
     flex: 1,
     backgroundColor: "#020617",
   },
 
   header: {
-    paddingTop: 54,
+    paddingTop: 12,
     paddingBottom: 16,
     paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 1,
     borderBottomColor: "#1f2937",
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    backgroundColor: "#020617",
   },
 
   backButton: {
     backgroundColor: "#111827",
     borderWidth: 1,
-    borderColor: "#253149",
+    borderColor: "#334155",
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
+    paddingVertical: 9,
+    borderRadius: 14,
   },
 
   backText: {
@@ -321,24 +312,25 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "900",
     textTransform: "uppercase",
-    letterSpacing: 1.2,
+    letterSpacing: 1.5,
     marginBottom: 3,
   },
 
   title: {
-    fontSize: 22,
+    color: "#FFFFFF",
+    fontSize: 26,
     fontWeight: "900",
-    color: "#F8FAFC",
   },
 
   userText: {
     color: "#94A3B8",
-    fontSize: 12,
+    fontSize: 13,
     marginTop: 3,
   },
 
   statusContainer: {
     alignItems: "center",
+    minWidth: 74,
   },
 
   statusDot: {
@@ -349,12 +341,14 @@ const styles = StyleSheet.create({
   },
 
   statusText: {
+    color: "#9CA3AF",
     fontSize: 11,
-    color: "#9ca3af",
-    fontWeight: "700",
+    fontWeight: "800",
   },
 
   messages: {
     flex: 1,
+    paddingHorizontal: 8,
+    backgroundColor: "#020617",
   },
 });

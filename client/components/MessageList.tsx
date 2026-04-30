@@ -14,6 +14,34 @@ type Props = {
   onReact: (messageId: string, emoji: string) => void;
 };
 
+function formatTime(date: string) {
+  return new Date(date).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatDate(date: string) {
+  const messageDate = new Date(date);
+  const today = new Date();
+
+  const isToday = messageDate.toDateString() === today.toDateString();
+
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+
+  const isYesterday = messageDate.toDateString() === yesterday.toDateString();
+
+  if (isToday) return "Today";
+  if (isYesterday) return "Yesterday";
+
+  return messageDate.toLocaleDateString([], {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 export default function MessageList({ messages, onReact }: Props) {
   const listRef = useRef<FlatList<Message>>(null);
 
@@ -25,66 +53,80 @@ export default function MessageList({ messages, onReact }: Props) {
     }
   }, [messages.length]);
 
-  const renderItem: ListRenderItem<Message> = ({ item }) => {
-    const time = new Date(item.createdAt).toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    });
+  const renderItem: ListRenderItem<Message> = ({ item, index }) => {
+    const previousMessage = messages[index - 1];
+
+    const showDateDivider =
+      !previousMessage ||
+      new Date(previousMessage.createdAt).toDateString() !==
+        new Date(item.createdAt).toDateString();
 
     const reactionEntries = Object.entries(item.reactions || {});
 
     return (
-      <View style={styles.messageCard}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {item.userName?.slice(0, 1).toUpperCase() || "G"}
-          </Text>
-        </View>
-
-        <View style={styles.messageContent}>
-          <View style={styles.messageHeader}>
-            <Text style={styles.name}>{item.userName || "Guest"}</Text>
-            <Text style={styles.time}>{time}</Text>
+      <>
+        {showDateDivider && (
+          <View style={styles.dateDivider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dateText}>{formatDate(item.createdAt)}</Text>
+            <View style={styles.dividerLine} />
           </View>
+        )}
 
-          <Text style={styles.messageText}>
-            {item.deleted ? "This message was deleted." : item.text}
-          </Text>
-
-          <View style={styles.messageFooter}>
-            <Text style={styles.status}>
-              {item.status === "sending" ? "⏳ Sending" : "✅ Sent"}
-              {item.edited ? " • Edited" : ""}
+        <View style={styles.messageRow}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>
+              {item.userName?.slice(0, 1).toUpperCase() || "G"}
             </Text>
-
-            <View style={styles.reactionRow}>
-              <Pressable onPress={() => onReact(item.id, "🔥")}>
-                <Text style={styles.reactionButton}>🔥</Text>
-              </Pressable>
-
-              <Pressable onPress={() => onReact(item.id, "👍")}>
-                <Text style={styles.reactionButton}>👍</Text>
-              </Pressable>
-
-              <Pressable onPress={() => onReact(item.id, "😂")}>
-                <Text style={styles.reactionButton}>😂</Text>
-              </Pressable>
-            </View>
           </View>
 
-          {reactionEntries.length > 0 && (
-            <View style={styles.reactions}>
-              {reactionEntries.map(([emoji, users]) => (
-                <View key={emoji} style={styles.reactionPill}>
-                  <Text style={styles.reactionPillText}>
-                    {emoji} {Array.isArray(users) ? users.length : users}
-                  </Text>
-                </View>
-              ))}
+          <View style={styles.messageMain}>
+            <View style={styles.messageHeader}>
+              <Text style={styles.name}>{item.userName || "Guest"}</Text>
+              <Text style={styles.time}>{formatTime(item.createdAt)}</Text>
             </View>
-          )}
+
+            <View style={styles.bubble}>
+              <Text
+                style={[styles.messageText, item.deleted && styles.deletedText]}
+              >
+                {item.deleted ? "This message was deleted." : item.text}
+              </Text>
+
+              <View style={styles.messageFooter}>
+                <Text style={styles.status}>
+                  {item.status === "sending" ? "Sending..." : "Sent"}
+                  {item.edited ? " • Edited" : ""}
+                </Text>
+
+                <View style={styles.reactionRow}>
+                  {["🔥", "👍", "😂"].map((emoji) => (
+                    <Pressable
+                      key={emoji}
+                      onPress={() => onReact(item.id, emoji)}
+                      style={styles.reactionButton}
+                    >
+                      <Text style={styles.reactionEmoji}>{emoji}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              {reactionEntries.length > 0 && (
+                <View style={styles.reactions}>
+                  {reactionEntries.map(([emoji, users]) => (
+                    <View key={emoji} style={styles.reactionPill}>
+                      <Text style={styles.reactionPillText}>
+                        {emoji} {Array.isArray(users) ? users.length : users}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+          </View>
         </View>
-      </View>
+      </>
     );
   };
 
@@ -110,22 +152,44 @@ export default function MessageList({ messages, onReact }: Props) {
 
 const styles = StyleSheet.create({
   list: {
-    padding: 16,
+    paddingHorizontal: 14,
+    paddingTop: 12,
     paddingBottom: 24,
   },
 
-  messageCard: {
+  dateDivider: {
     flexDirection: "row",
-    marginBottom: 16,
+    alignItems: "center",
+    marginVertical: 18,
+  },
+
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#253149",
+  },
+
+  dateText: {
+    color: "#94A3B8",
+    fontSize: 12,
+    fontWeight: "800",
+    marginHorizontal: 10,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+
+  messageRow: {
+    flexDirection: "row",
+    marginBottom: 14,
   },
 
   avatar: {
-    width: 38,
-    height: 38,
+    width: 40,
+    height: 40,
     borderRadius: 14,
     backgroundColor: "rgba(139,124,255,0.18)",
     borderWidth: 1,
-    borderColor: "rgba(139,124,255,0.4)",
+    borderColor: "rgba(139,124,255,0.45)",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
@@ -137,20 +201,15 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
 
-  messageContent: {
+  messageMain: {
     flex: 1,
-    backgroundColor: "#111827",
-    borderWidth: 1,
-    borderColor: "#253149",
-    borderRadius: 18,
-    padding: 14,
   },
 
   messageHeader: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 6,
+    alignItems: "baseline",
+    gap: 8,
+    marginBottom: 5,
   },
 
   name: {
@@ -164,10 +223,23 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
 
+  bubble: {
+    backgroundColor: "#111827",
+    borderWidth: 1,
+    borderColor: "#253149",
+    borderRadius: 18,
+    padding: 13,
+  },
+
   messageText: {
     color: "#CBD5E1",
     fontSize: 15,
     lineHeight: 21,
+  },
+
+  deletedText: {
+    color: "#64748B",
+    fontStyle: "italic",
   },
 
   messageFooter: {
@@ -184,11 +256,22 @@ const styles = StyleSheet.create({
 
   reactionRow: {
     flexDirection: "row",
-    gap: 8,
+    gap: 6,
   },
 
   reactionButton: {
-    fontSize: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    backgroundColor: "#0B1220",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#253149",
+  },
+
+  reactionEmoji: {
+    fontSize: 14,
   },
 
   reactions: {
@@ -199,18 +282,18 @@ const styles = StyleSheet.create({
   },
 
   reactionPill: {
-    backgroundColor: "#0B1220",
+    backgroundColor: "rgba(139,124,255,0.12)",
     borderWidth: 1,
-    borderColor: "#253149",
+    borderColor: "rgba(139,124,255,0.35)",
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
 
   reactionPillText: {
-    color: "#CBD5E1",
+    color: "#DDD6FE",
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "800",
   },
 
   emptyState: {
